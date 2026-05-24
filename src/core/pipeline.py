@@ -81,19 +81,41 @@ class BasketballInferencePipeline:
             if len(self.repairer.raw_buffer) >= self.repairer.window_size:
                 if self.repairer.raw_buffer[90 - 1]["ball"] is not None or frame_counter % 30 == 0:
                     
-                    known_indices = [idx for idx in range(90) if self.repairer.raw_buffer[idx]["ball"] is not None]
-                    if len(known_indices) >= 2:
+                    # Create a deep local slice copy of the current 90 frames to safely handle edge cases
+                    window_slice = [{"ball": f["ball"], "rim": f["rim"]} for f in self.repairer.raw_buffer[:90]]
+                    known_indices = [idx for idx, f in enumerate(window_slice) if f["ball"] is not None]
+
+                    if len(known_indices) == 0:
+                        # Fallback case: If the ball was never detected at all, fill completely with rim baseline
+                        for f in window_slice:
+                            f["ball"] = f["rim"]
+                    else:
+                        # 1. Interpolate internal occlusion gaps between known points
                         for i in range(len(known_indices) - 1):
                             idx_s, idx_e = known_indices[i], known_indices[i+1]
                             if idx_e - idx_s > 1:
-                                p_s = self.repairer.raw_buffer[idx_s]["ball"]
-                                p_e = self.repairer.raw_buffer[idx_e]["ball"]
+                                p_s = window_slice[idx_s]["ball"]
+                                p_e = window_slice[idx_e]["ball"]
                                 steps = idx_e - idx_s
                                 for s in range(1, steps):
                                     alpha = s / steps
-                                    self.repairer.raw_buffer[idx_s + s]["ball"] = (1 - alpha) * p_s + alpha * p_e
+                                    window_slice[idx_s + s]["ball"] = (1 - alpha) * p_s + alpha * p_e
 
-                    window_slice = self.repairer.raw_buffer[:90]
+                        # 2. Backfill leading Nones (if the video starts with occlusion)
+                        first_idx = known_indices[0]
+                        if first_idx > 0:
+                            p_first = window_slice[first_idx]["ball"]
+                            for idx in range(first_idx):
+                                window_slice[idx]["ball"] = p_first
+
+                        # 3. Forward-fill trailing Nones (if the slice ends with occlusion)
+                        last_idx = known_indices[-1]
+                        if last_idx < 89:
+                            p_last = window_slice[last_idx]["ball"]
+                            for idx in range(last_idx + 1, 90):
+                                window_slice[idx]["ball"] = p_last
+
+                    # Extract mathematical kinematic features from the bulletproof window
                     lstm_input = self.extractor.extract_and_scale(window_slice)
 
                     window_tensor = torch.FloatTensor(lstm_input).to(self.device)

@@ -1,0 +1,12 @@
+assets/
+model/
+.vscode/
+__pycache__/
+
+# Ignore virtual environments
+venv/
+env/
+.venv/
+
+# Ignore OS generated files
+.DS_Store

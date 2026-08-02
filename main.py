@@ -6,6 +6,8 @@ import sys
 from src.FrameSnapshot import FrameSnapshot
 from src.OfflineRepair import OfflineRepair
 
+from src.StateMachines.ShotStateMachine import ShotStateMachine
+
 # names: {0: 'ball', 1: 'player', 2: 'rim'}
 YOLO_MODEL_PATH = './model/yolo_best.pt'
 if not os.path.exists(YOLO_MODEL_PATH):
@@ -15,7 +17,7 @@ else:
     print("[SUCCESS] Model loaded successfully")
 
 
-VIDEO_PATH = './assets/videos/1.mp4'
+VIDEO_PATH = './assets/videos/5.mp4'
 if not os.path.exists(VIDEO_PATH):
     print(f"[ERROR] Could not find the video at: {VIDEO_PATH}")
     sys.exit(1)
@@ -27,6 +29,7 @@ width = int(cap.get(cv2.CAP_PROP_FRAME_WIDTH))
 height = int(cap.get(cv2.CAP_PROP_FRAME_HEIGHT))
 fps = cap.get(cv2.CAP_PROP_FPS)
 
+shot_state_machine = ShotStateMachine()
 offline_repairer = OfflineRepair()
 last_ball_position = None
 buffer = []
@@ -66,11 +69,12 @@ while cap.isOpened():
                 
         for buffered_snap, rep_coord in zip(buffer, repaired_coords):
             buffered_snap.ball_center = rep_coord
-            print(f"[REPAIRED] Frame {buffered_snap.frame_index}: Ball interpolated at (X={rep_coord[0]:.1f}, Y={rep_coord[1]:.1f})")
-            # here update the state machine for each buffered snapshot
-            
+            if shot_state_machine.update(buffered_snap):
+                print(f"[SHOT DETECTED] Second {buffered_snap.frame_index/fps:.1f}")
+
     buffer = []
-    print(f"[DETECTED] Frame {current_snapshot.frame_index}: Ball found by YOLO at (X={new_ball_position[0]:.1f}, Y={new_ball_position[1]:.1f})")
+    if shot_state_machine.update(current_snapshot):
+        print(f"[SHOT DETECTED] Second {current_snapshot.frame_index/fps:.1f}")
     last_ball_position = new_ball_position
 
 cap.release()
